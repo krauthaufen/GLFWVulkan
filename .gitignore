@@ -1,0 +1,5 @@
+/obj/
+/bin/
+/.ionide
+/Aardvark.log
+.DS_Store

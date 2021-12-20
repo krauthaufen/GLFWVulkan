@@ -1,0 +1,1337 @@
+namespace Glfw
+
+open Microsoft.FSharp.NativeInterop
+open Aardvark.Base
+open Aardvark.Rendering
+open System.Threading
+open Silk.NET.GLFW
+open System.Runtime.InteropServices
+open FSharp.Control
+open FSharp.Data.Adaptive
+open Aardvark.Rendering.Vulkan
+
+type Cursor = Aardvark.Application.Cursor
+
+#nowarn "9"
+#nowarn "51"
+
+module private Translations =
+
+    type K = Silk.NET.GLFW.Keys
+    type A = Aardvark.Application.Keys
+
+    let table (elements : array<'a * 'b>) =
+        let dict = System.Collections.Generic.Dictionary<'a, 'b>()
+        for (k,v) in elements do
+            dict.[k] <- v
+        fun k ->
+            let mutable v = Unchecked.defaultof<'b>
+            if dict.TryGetValue(k, &v) then
+                ValueSome v
+            else
+                ValueNone           
+
+    let getKeyByName =
+        table [|
+            "A", A.A
+            "B", A.B
+            "C", A.C
+            "D", A.D
+            "E", A.E
+            "F", A.F
+            "G", A.G
+            "H", A.H
+            "I", A.I
+            "J", A.J
+            "K", A.K
+            "L", A.L
+            "M", A.M
+            "N", A.N
+            "O", A.O
+            "P", A.P
+            "Q", A.Q
+            "R", A.R
+            "S", A.S
+            "T", A.T
+            "U", A.U
+            "V", A.V
+            "W", A.W
+            "X", A.X
+            "Y", A.Y
+            "Z", A.Z
+
+            "-", A.OemMinus
+            ".", A.OemPeriod
+            "+", A.OemPlus
+            ",", A.OemComma
+            ";", A.OemSemicolon
+
+            "ß", A.OemOpenBrackets
+            "´", A.Oem6
+            "Ü", A.Oem1
+            "Ö", A.Oem3
+            "Ä", A.OemQuotes
+            "#", A.OemQuestion
+            "^", A.Oem5
+            "<", A.OemBackslash
+        |]
+
+    let getKeyByKey = 
+        table [|
+            K.A, A.A
+            K.AltLeft, A.LeftAlt
+            K.AltRight, A.RightAlt
+            K.Apostrophe, A.OemQuotes
+            K.B, A.B
+            K.BackSlash, A.OemBackslash
+            K.Backspace, A.Back
+            K.C, A.C
+            K.CapsLock, A.CapsLock
+            K.Comma, A.OemComma
+            K.ControlLeft, A.LeftCtrl
+            K.ControlRight, A.RightCtrl
+            K.D, A.D
+            K.D0, A.D0
+            K.Delete, A.Delete
+            K.Down, A.Down
+            K.E, A.E
+            K.End, A.End
+            K.Enter, A.Enter
+            K.Equal, A.None // TODO
+            K.Escape, A.Escape
+            K.F, A.F
+            K.F1, A.F1
+            K.F2, A.F2
+            K.F3, A.F3
+            K.F4, A.F4
+            K.F5, A.F5
+            K.F6, A.F6
+            K.F7, A.F7
+            K.F8, A.F8
+            K.F9, A.F9
+            K.F10, A.F10
+            K.F11, A.F11
+            K.F12, A.F12
+            K.F13, A.F13
+            K.F14, A.F14
+            K.F15, A.F15
+            K.F16, A.F16
+            K.F17, A.F17
+            K.F18, A.F18
+            K.F19, A.F19
+            K.F20, A.F20
+            K.F21, A.F21
+            K.F22, A.F22
+            K.F23, A.F23
+            K.F24, A.F24
+            K.F25, A.None
+            K.G, A.G
+            K.GraveAccent, A.Oem5
+            K.H, A.H
+            K.Home, A.Home
+            K.I, A.I
+            K.Insert, A.Insert
+            K.J, A.J
+            K.K, A.K
+            K.Keypad0, A.NumPad0
+            K.Keypad1, A.NumPad1
+            K.Keypad2, A.NumPad2
+            K.Keypad3, A.NumPad3
+            K.Keypad4, A.NumPad4
+            K.Keypad5, A.NumPad5
+            K.Keypad6, A.NumPad6
+            K.Keypad7, A.NumPad7
+            K.Keypad8, A.NumPad8
+            K.Keypad9, A.NumPad9
+            K.KeypadAdd, A.Add
+            K.KeypadDecimal, A.Decimal
+            K.KeypadDivide, A.Divide
+            K.KeypadEnter, A.Return
+            K.KeypadEqual, A.None // TODO
+            K.KeypadMultiply, A.Multiply
+            K.KeypadSubtract, A.Subtract
+            K.L, A.L
+            K.LastKey, A.None // TODO
+            K.Left, A.Left
+            K.LeftBracket, A.None // TODO
+            K.M, A.M
+            K.Menu, A.None // TODO
+            K.Minus, A.OemMinus
+            K.N, A.N
+            K.Number1, A.D1
+            K.Number2, A.D2
+            K.Number3, A.D3
+            K.Number4, A.D4
+            K.Number5, A.D5
+            K.Number6, A.D6
+            K.Number7, A.D7
+            K.Number8, A.D8
+            K.Number9, A.D9
+            K.NumLock, A.NumLock
+            K.O, A.O
+            K.P, A.P
+            K.PageDown, A.PageDown
+            K.PageUp, A.PageUp
+            K.Pause, A.Pause
+            K.Period, A.OemPeriod
+            K.PrintScreen, A.PrintScreen
+            K.Q, A.Q
+            K.R, A.R
+            K.Right, A.Right
+            K.RightBracket, A.None // TODO
+            K.S, A.S
+            K.ScrollLock, A.Scroll
+            K.Semicolon, A.OemSemicolon
+            K.ShiftLeft, A.LeftShift
+            K.ShiftRight, A.RightShift
+            K.Slash, A.None // TODO
+            K.Space, A.Space
+            K.SuperLeft, A.LWin
+            K.SuperRight, A.RWin
+            K.T, A.T
+            K.Tab, A.Tab
+            K.U, A.U
+            K.Unknown, A.None
+            K.Up, A.Up
+            K.V, A.V
+            K.W, A.W
+            K.World1, A.None // TODO
+            K.World2, A.None // TODO
+            K.X, A.X
+            K.Y, A.Y
+            K.Z, A.Z
+
+        |]
+
+    let tryGetKey (k : Keys) (scan : int) (name : string) =     
+        match getKeyByName name with
+        | ValueSome k when k <> A.None -> ValueSome k
+        | _ ->
+            match getKeyByKey k with
+            | ValueSome k  when k <> A.None -> ValueSome k
+            | _ ->  
+                if RuntimeInformation.IsOSPlatform OSPlatform.Windows then
+                    let k = Aardvark.Application.KeyConverter.keyFromVirtualKey scan
+                    if k <> A.None then ValueSome k
+                    else ValueNone
+                else
+                    ValueNone               
+
+
+    let toMouseButton (b : MouseButton) =
+        match b with
+        | MouseButton.Left -> Aardvark.Application.MouseButtons.Left
+        | MouseButton.Right -> Aardvark.Application.MouseButtons.Right
+        | MouseButton.Middle -> Aardvark.Application.MouseButtons.Middle
+        | _ -> Aardvark.Application.MouseButtons.None
+
+[<AutoOpen>]
+module MissingGlfwFunctions =
+    open System.Runtime.InteropServices
+
+    type private GetWindowContentScaleDel = delegate of nativeptr<WindowHandle> * byref<float32> * byref<float32> -> unit
+
+    type private GetKeyNameDel = delegate of Keys * int -> nativeint
+
+    let private scaleDict = System.Collections.Concurrent.ConcurrentDictionary<Glfw, GetWindowContentScaleDel>()
+    let private keyNameDict = System.Collections.Concurrent.ConcurrentDictionary<Glfw, GetKeyNameDel>()
+
+    let private getWindowScale (glfw : Glfw) =
+        scaleDict.GetOrAdd(glfw, fun glfw ->
+            let m = glfw.Context.GetProcAddress "glfwGetWindowContentScale"
+            Marshal.GetDelegateForFunctionPointer(m, typeof<GetWindowContentScaleDel>) |> unbox<GetWindowContentScaleDel>
+        )
+    let private getKeyName (glfw : Glfw) =
+        keyNameDict.GetOrAdd(glfw, fun glfw ->
+            let m = glfw.Context.GetProcAddress "glfwGetKeyName"
+            Marshal.GetDelegateForFunctionPointer(m, typeof<GetKeyNameDel>) |> unbox<GetKeyNameDel>
+        )
+
+    type Glfw with
+        member x.GetWindowContentScale(win : nativeptr<WindowHandle>, [<Out>] sx : byref<float32>, [<Out>] sy : byref<float32>) =
+            getWindowScale(x).Invoke(win, &sx, &sy)
+
+        member x.GetKeyNamePtr(key : Keys, code : int) =
+            let mutable ptr = getKeyName(x).Invoke(key, code) |> NativePtr.ofNativeInt<byte>
+
+            if ptr = NativePtr.zero then 
+                ""
+            else
+                let l = System.Collections.Generic.List<byte>()
+                let mutable c = NativePtr.read ptr
+                while c <> 0uy do
+                    l.Add c
+                    ptr <- NativePtr.add ptr 1
+                    c <- NativePtr.read ptr
+
+                System.Text.Encoding.UTF8.GetString(l.ToArray())
+
+type internal WindowEvent =
+    | Resize
+    | Run of action : (unit -> unit)
+
+
+type KeyEvent internal(key : Aardvark.Application.Keys, scanCode : int, action : InputAction, modifiers : KeyModifiers, keyName : string) =
+    member x.Key = key
+    member x.ScanCode = scanCode
+    member x.Name = keyName  
+
+    member x.IsRepeat = action = InputAction.Repeat
+    member x.Alt = int (modifiers &&& KeyModifiers.Alt) <> 0
+    member x.Shift = int (modifiers &&& KeyModifiers.Shift) <> 0
+    member x.Ctrl = int (modifiers &&& KeyModifiers.Control) <> 0
+    member x.Super = int (modifiers &&& KeyModifiers.Super) <> 0
+
+    override x.ToString() =
+        let kind =
+            match action with
+            | InputAction.Press -> "KeyDown"
+            | InputAction.Repeat -> "KeyRepeat"
+            | InputAction.Release -> "KeyUp"
+            | _ -> "KeyUnknown"
+
+        let modifiers = 
+            [
+                if x.Alt then yield "alt"
+                if x.Shift then yield "shift"
+                if x.Ctrl then yield "ctrl"
+                if x.Super then yield "super"          
+            ]
+
+        sprintf "%s { key: %A; scan: %A; mod: [%s]; name: %s }" kind key scanCode (String.concat "; " modifiers) keyName
+
+type ResizeEvent(framebufferSize : V2i, physicalSize : V2i, windowSize : V2i) =
+    member x.FramebufferSize = framebufferSize
+    member x.PhysicalSize = physicalSize
+    member x.WindowSize = windowSize
+
+    override x.ToString() = 
+        sprintf "Resize { framebuffer: %A; physical: %A; window: %A }" framebufferSize physicalSize windowSize
+
+type MouseEvent internal(button : Aardvark.Application.MouseButtons, position: V2d, action : InputAction, modifiers : KeyModifiers) =
+    member x.Button = button
+    member x.Alt = int (modifiers &&& KeyModifiers.Alt) <> 0
+    member x.Shift = int (modifiers &&& KeyModifiers.Shift) <> 0
+    member x.Ctrl = int (modifiers &&& KeyModifiers.Control) <> 0
+    member x.Super = int (modifiers &&& KeyModifiers.Super) <> 0
+    member x.Position = position
+
+    override x.ToString() =
+        let kind =
+            match action with
+            | InputAction.Press -> "MouseDown"
+            | InputAction.Release -> "MouseUp"
+            | _ -> "MouseUnknown"
+
+        let modifiers = 
+            [
+                if x.Alt then yield "alt"
+                if x.Shift then yield "shift"
+                if x.Ctrl then yield "ctrl"
+                if x.Super then yield "super"          
+            ]
+
+        sprintf "%s { button: %A; mod: [%s]; position: %A }" kind button (String.concat "; " modifiers) position
+
+type WindowState =
+    | Normal = 0
+    | Minimized = 1
+    | Maximized = 2
+    | Invisible = 3
+
+
+open System.Threading.Tasks
+
+
+type WindowConfig =
+    {
+        title : string
+        width : int
+        height : int
+        focus : bool
+        resizable : bool
+        vsync : bool
+        transparent : bool
+        opengl : bool
+        physicalSize : bool
+        samples : int
+    }    
+
+
+module internal IconLoader = 
+    
+    type private Self = Self
+    let private getIcon'() = 
+        let sizes = Array.sortDescending [| 16; 24; 32; 48; 64; 128; 256 |]
+        let ass = typeof<Self>.Assembly
+        let name = ass.GetManifestResourceNames() |> Array.find (fun n -> n.EndsWith "aardvark.png")
+        let img = (ass.GetManifestResourceStream name |> PixImage.Create).ToPixImage<byte>(Col.Format.RGBA)
+
+        let levels =
+            let mutable last = img
+            sizes |> Array.map (fun s ->
+                if s = last.Size.X && s = last.Size.Y then
+                    last :> PixImage
+                else
+                    let dst = PixImage<byte>(Col.Format.RGBA, V2i(s,s))
+                    NativeVolume.using last.Volume (fun src ->
+                        NativeVolume.using dst.Volume (fun dst ->
+                            NativeVolume.blit src dst
+                        )
+                    )
+
+                    last <- dst
+                    dst :> PixImage
+            )
+
+        PixImageMipMap levels
+
+    let getIcon() =
+        try 
+            getIcon'() |> Some
+        with e -> 
+            Log.warn "could not load icon. %A" e.Message
+            None
+
+module Config =
+    let mutable hideCocoaMenuBar = false
+
+[<Sealed>]
+type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
+    [<System.ThreadStatic; DefaultValue>]
+    static val mutable private IsMainThread_ : bool
+
+    let glfw = Glfw.GetApi()
+    do 
+        if Config.hideCocoaMenuBar then
+            Log.line "hiding cocoa menubar"
+            glfw.InitHint(Silk.NET.GLFW.InitHint.CocoaMenubar, false) // glfwInitHint(GLFW_COCOA_MENUBAR, GLFW_FALSE);
+        
+        if not (glfw.Init()) then  
+            failwith "GLFW init failed"
+
+    let queue = System.Collections.Concurrent.ConcurrentQueue<unit -> unit>()
+
+    let existingWindows = System.Collections.Concurrent.ConcurrentHashSet<Window>()
+    let visibleWindows = System.Collections.Concurrent.ConcurrentHashSet<Window>()
+    do Application.IsMainThread_ <- true
+
+    let aardvarkIcon = IconLoader.getIcon()
+                
+
+    member x.Runtime = runtime
+
+    member internal x.AddExistingWindow(w : Window) =
+        existingWindows.Add w |> ignore
+        glfw.PostEmptyEvent()
+
+    member internal x.RemoveExistingWindow(w : Window) =
+        existingWindows.Remove w |> ignore
+        visibleWindows.Remove w |> ignore
+        glfw.PostEmptyEvent()
+
+    member internal x.AddVisibleWindow(w : Window) =
+        visibleWindows.Add w |> ignore
+        glfw.PostEmptyEvent()
+
+    member internal x.RemoveVisibleWindow(w : Window) =
+        visibleWindows.Remove w |> ignore
+        glfw.PostEmptyEvent()
+
+    member x.Glfw = glfw
+
+    member x.IsMainThread = Application.IsMainThread_
+
+    member x.Post(action : unit -> unit) =
+        if Application.IsMainThread_ then
+            try action()
+            with _ -> ()            
+        else        
+            queue.Enqueue(action)
+            glfw.PostEmptyEvent()
+
+    member x.StartTask<'r>(action : unit -> 'r) : Task<'r> =
+        if Application.IsMainThread_ then
+            try
+                let v = action()
+                Task.FromResult v
+            with e ->
+                Task.FromException<'r> e          
+        else        
+            let tcs = TaskCompletionSource<'r>()
+            x.Post(fun () ->
+                try 
+                    let v = action()
+                    tcs.SetResult v
+                with
+                | :? System.OperationCanceledException -> tcs.SetCanceled()       
+                | e -> tcs.SetException e            
+            )     
+            tcs.Task           
+
+    member x.Invoke<'r>(action : unit -> 'r) : 'r =
+        if Application.IsMainThread_ then
+            action()
+        else                
+            let l = obj()
+            let mutable res = None
+            x.Post(fun () ->
+                let value = 
+                    try Result.Ok (action())
+                    with e -> Result.Error e    
+                lock l (fun () ->
+                    res <- Some value
+                    Monitor.PulseAll l
+                )            
+            )     
+            lock l (fun () ->
+                while Option.isNone res do
+                    Monitor.Wait l |> ignore
+                match res.Value with
+                | Result.Ok v -> v
+                | Result.Error e -> raise e         
+            )      
+
+    member x.CreateWindow(cfg : WindowConfig) =
+        x.Invoke(fun () ->
+            // if not (glfw.VulkanSupported()) then
+            //     failwithf "Vulkan not supported by GLFW on your platform"
+                
+            let old = glfw.GetCurrentContext()
+            if old <> NativePtr.zero then
+                glfw.MakeContextCurrent(NativePtr.zero)
+
+            let mutable glContext = false
+            let mutable parent : nativeptr<WindowHandle> = NativePtr.zero
+            glfw.DefaultWindowHints()
+
+            glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi)
+
+            glfw.WindowHint(WindowHintBool.TransparentFramebuffer, cfg.transparent)
+            glfw.WindowHint(WindowHintBool.Visible, false)
+            glfw.WindowHint(WindowHintBool.Resizable, cfg.resizable)
+            glfw.WindowHint(WindowHintInt.RefreshRate, 0)
+            glfw.WindowHint(WindowHintBool.FocusOnShow, cfg.focus)
+
+
+            let win = glfw.CreateWindow(cfg.width, cfg.height, cfg.title, NativePtr.zero, parent)
+            if win = NativePtr.zero then failwith "GLFW could not create window"
+            
+            let mutable surf = Unchecked.defaultof<_>
+            let instanceHandle = Silk.NET.Core.Native.VkHandle(runtime.Device.Instance.Handle)
+            let ret = glfw.CreateWindowSurface(instanceHandle, win, NativePtr.toVoidPtr NativePtr.zero<byte>, &&surf)
+            let mutable desc = NativePtr.zero
+            let code = glfw.GetError(&desc)
+            
+            if code <> ErrorCode.NoError then
+                let bytes =
+                    let res = System.Collections.Generic.List()
+                    let mutable p = desc
+                    let mutable c = NativePtr.read p
+                    while c <> 0uy do
+                        res.Add (char c)
+                        p <- NativePtr.add p 1
+                        c <- NativePtr.read p
+                    res.ToArray()
+
+                Log.warn "%A: %s" code (System.String(bytes))
+
+
+            let surface = Aardvark.Rendering.Vulkan.KHRSurface.VkSurfaceKHR(int64 surf.Handle)
+            let surf = new Aardvark.Rendering.Vulkan.Surface(runtime.Device, surface)
+            surf.AddReference()
+            let w = new Window(x, win, cfg.title, cfg.vsync, surf, cfg.samples)
+
+            Log.warn "SURFACE: %A" surf.Handle.Handle
+
+
+            match aardvarkIcon with
+            | Some icon -> w.Icon <- Some icon
+            | _ -> ()
+
+
+            w
+        )        
+
+    member x.Run([<System.ParamArray>] ws : Window[]) =    
+        let mutable wait = false
+
+        for w in ws do w.IsVisible <- true
+
+        while existingWindows.Count > 0 do
+            if wait then glfw.WaitEvents()
+            else glfw.PollEvents()
+
+            let mutable action = Unchecked.defaultof<unit -> unit>
+            while queue.TryDequeue(&action) do
+                try action()
+                with _ -> ()
+
+            wait <- true
+            for w in visibleWindows do
+                let v = w.Redraw()
+                if v then wait <- false
+
+
+and Window internal(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : Aardvark.Rendering.Vulkan.Surface, samples : int) as this =
+    static let keyNameCache = System.Collections.Concurrent.ConcurrentDictionary<Keys * int, string>()
+
+    let glfw = app.Glfw
+
+    let mutable windowScale = V2d.II
+    let mutable damaged = true
+    let mutable title = title
+    let mutable currentTitle = title
+    let mutable icon : option<PixImageMipMap> = None
+    let mutable lastMousePosition = V2d.Zero
+    let mutable enableVSync = enableVSync
+    let mutable vsync = enableVSync
+    let mutable showFrameTime = true
+
+    do app.AddExistingWindow this
+
+    let getWindowState() =
+        let vis = glfw.GetWindowAttrib(win, WindowAttributeGetter.Visible)
+        if vis then 
+            let min = glfw.GetWindowAttrib(win, WindowAttributeGetter.Iconified)
+            let max = glfw.GetWindowAttrib(win, WindowAttributeGetter.Maximized)
+            if min then WindowState.Minimized
+            elif max then WindowState.Maximized
+            else WindowState.Normal
+        else
+            WindowState.Invisible        
+
+
+    let getKeyName(key : Keys) (code : int) =
+        keyNameCache.GetOrAdd((key, code), fun (key, code) ->
+            let c = if code >= 0 then code else glfw.GetKeyScancode(int key)
+            let str = glfw.GetKeyNamePtr(key, c)
+            if System.String.IsNullOrWhiteSpace str then
+                string key
+            else
+                let a = str.Substring(0, 1)
+                let b = str.Substring(1)   
+                a.ToUpper() + b
+        )
+
+    let closeEvt = Event<unit>()    
+    let resize = Event<ResizeEvent>()
+    let wpChanged = Event<V2i>()
+    let cpChanged = Event<V2i>()
+    let focus = Event<bool>()
+    let stateChanged = Event<WindowState>()
+    let dropFiles = Event<string[]>()
+
+    let keyDown = Event<KeyEvent>()
+    let keyUp = Event<KeyEvent>()
+    let keyInput = Event<string>()
+
+    let mouseMove = Event<V2d>()
+    let mouseDown = Event<MouseEvent>()
+    let mouseUp = Event<MouseEvent>()
+    let mouseWheel = Event<V2d>()
+    let mouseEnter = Event<V2d>()
+    let mouseLeave = Event<V2d>()
+
+    let beforeRender = Event<unit>()
+    let afterRender = Event<unit>()
+
+    let getFrameBorder() =
+        if glfw.GetWindowAttrib(win, WindowAttributeGetter.Decorated) && glfw.GetWindowMonitor(win) = NativePtr.zero then
+            let mutable border = Border2i()
+            glfw.GetWindowFrameSize(win, &border.Min.X, &border.Min.Y, &border.Max.X, &border.Max.Y)
+            if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && System.Environment.OSVersion.Version.Major = 10 then
+                if glfw.GetWindowAttrib(win, WindowAttributeGetter.Decorated) then
+                    // see https://github.com/glfw/glfw/issues/539
+                    border.Min.X <- 1
+                    border.Max.X <- 1
+                    border.Max.Y <- 1
+            border  
+        else
+            Border2i()              
+
+    let contentSize() =
+        let mutable ps = V2i.Zero
+        glfw.GetWindowSize(win, &ps.X, &ps.Y)
+        V2i(round (float windowScale.X * float ps.X), round(float windowScale.Y * float ps.Y))
+
+    let getResizeEvent() =
+        let mutable fbo = V2i.Zero
+        let mutable ps = V2i.Zero
+        let mutable scale = V2f.Zero
+        let border = getFrameBorder()
+
+        glfw.GetFramebufferSize(win, &fbo.X, &fbo.Y)
+        glfw.GetWindowSize(win, &ps.X, &ps.Y)
+        glfw.GetWindowContentScale(win, &scale.X, &scale.Y)   
+        windowScale <- V2d scale
+        let ws = ps + border.Min + border.Max
+        let ps = V2i(round (float scale.X * float ps.X), round(float scale.Y * float ps.Y))
+        let ws = V2i(round (float scale.X * float ws.X), round(float scale.Y * float ws.Y))        
+
+        ResizeEvent(
+            fbo,
+            ps, 
+            ws
+        )
+
+    let getMousePosition() =
+        let v = 
+            glfw.GetWindowAttrib(win, WindowAttributeGetter.Visible) &&
+            not (glfw.GetWindowAttrib(win, WindowAttributeGetter.Iconified))
+        if v then
+            let mutable pos = V2d.Zero
+            glfw.GetCursorPos(win, &pos.X, &pos.Y)
+            lastMousePosition <- pos * windowScale
+
+        lastMousePosition
+
+    let getPixelPostion() =
+        let pos = getMousePosition()
+        PixelPosition(V2i(pos.Round()), Box2i(V2i.Zero, contentSize()))
+
+    let keyboard = Aardvark.Application.EventKeyboard()
+    let mouse = Aardvark.Application.EventMouse(true)
+
+    let signature =
+        app.Runtime.CreateFramebufferSignature(samples, [
+            DefaultSemantic.Colors, RenderbufferFormat.Rgba8
+            DefaultSemantic.Depth, RenderbufferFormat.Depth24Stencil8
+        ])
+
+    let currentSize =
+        let mutable s = V2i.Zero
+        glfw.GetFramebufferSize(win, &s.X, &s.Y)
+        cval s 
+
+    let resizeCb =
+        glfw.SetWindowSizeCallback(win, GlfwCallbacks.WindowSizeCallback(fun _ w h ->
+            let evt = getResizeEvent()
+            transact (fun () -> currentSize.Value <- evt.FramebufferSize)
+            resize.Trigger evt     
+            damaged <- true
+            this.Redraw() |> ignore
+        ))
+
+    let maxCb =
+        glfw.SetWindowMaximizeCallback(win, GlfwCallbacks.WindowMaximizeCallback(fun w b ->
+            let windowState = getWindowState()
+            stateChanged.Trigger windowState
+        ))
+
+    let minCb =
+        glfw.SetWindowIconifyCallback(win, GlfwCallbacks.WindowIconifyCallback(fun w b ->
+            let windowState = getWindowState()
+            stateChanged.Trigger windowState
+        ))
+
+    let closingCallback = 
+        glfw.SetWindowCloseCallback(win, GlfwCallbacks.WindowCloseCallback(fun w ->
+            closeEvt.Trigger()
+            glfw.HideWindow(win)
+            app.RemoveExistingWindow this
+        ))
+
+    let focusCallback =
+        glfw.SetWindowFocusCallback(win, GlfwCallbacks.WindowFocusCallback(fun w f ->
+            focus.Trigger(f)
+        ))
+
+    let posCb =
+        glfw.SetWindowPosCallback(win, GlfwCallbacks.WindowPosCallback(fun w x y ->
+            let border = getFrameBorder()
+            wpChanged.Trigger(V2i(x,y) - border.Min)
+            cpChanged.Trigger(V2i(x,y))
+        ))
+
+    let keyCallback =
+        glfw.SetKeyCallback(win, GlfwCallbacks.KeyCallback(fun w k c a m ->
+            let name = getKeyName k c
+            match Translations.tryGetKey k c name with
+            | ValueSome k -> 
+                match a with
+                | InputAction.Press -> 
+                    keyboard.KeyDown(k)
+                    keyDown.Trigger(KeyEvent(k, c, a, m, name))
+                | InputAction.Repeat -> 
+                    keyboard.KeyDown(k)
+                    keyDown.Trigger(KeyEvent(k,c, a, m, name))
+                | InputAction.Release -> 
+                    keyboard.KeyUp(k)
+                    keyUp.Trigger(KeyEvent(k, c, a, m, name))
+                | _ -> ()
+            | ValueNone ->
+                ()       
+        ))
+
+    let inputCallback =
+        glfw.SetCharCallback(win, GlfwCallbacks.CharCallback (fun w c ->
+            let str = System.Text.Encoding.UTF32.GetString(System.BitConverter.GetBytes(c))
+            for c in str do keyboard.KeyPress c
+            keyInput.Trigger(str)
+        ))
+
+
+    let moveCallback =
+        glfw.SetCursorPosCallback(win, GlfwCallbacks.CursorPosCallback(fun w a b ->
+            let v = 
+                glfw.GetWindowAttrib(w, WindowAttributeGetter.Visible) &&
+                not (glfw.GetWindowAttrib(w, WindowAttributeGetter.Iconified))
+            if v then
+                let p = windowScale * V2d(a,b)
+                
+                let pp = PixelPosition(V2i(p.Round()), Box2i(V2i.Zero, contentSize()))
+                mouse.Move(pp)
+                lastMousePosition <- p
+                mouseMove.Trigger(p)
+        ))
+
+    let mouseCallback =
+        glfw.SetMouseButtonCallback(win, GlfwCallbacks.MouseButtonCallback(fun w button action modifiers ->
+            let mutable pos = V2d.Zero
+            glfw.GetCursorPos(win, &pos.X, &pos.Y)
+            let pos = windowScale * pos
+            let evt = MouseEvent(Translations.toMouseButton button, pos, action, modifiers)
+            match action with
+            | InputAction.Press -> 
+                let pp = PixelPosition(V2i(pos.Round()), Box2i(V2i.Zero, contentSize()))
+                mouse.Down(pp, evt.Button)
+                mouseDown.Trigger evt    
+            | InputAction.Release -> 
+                let pp = PixelPosition(V2i(pos.Round()), Box2i(V2i.Zero, contentSize()))
+                mouse.Up(pp, evt.Button)
+                mouseUp.Trigger evt
+            | _ -> ()       
+        ))    
+
+    let wheelCallback =
+        glfw.SetScrollCallback(win, GlfwCallbacks.ScrollCallback(fun w dx dy ->
+            let mutable pos = V2d.Zero
+            glfw.GetCursorPos(win, &pos.X, &pos.Y)
+            let pp = getPixelPostion()
+            mouse.Scroll(pp, dy * 120.0)
+            mouseWheel.Trigger(V2d(dx, dy) * 120.0)
+        ))    
+
+    let damagedCallback =
+        glfw.SetWindowRefreshCallback(win, GlfwCallbacks.WindowRefreshCallback(fun w ->
+            damaged <- true
+        ))
+
+    let dropCallback =
+        glfw.SetDropCallback(win, GlfwCallbacks.DropCallback(fun _ cnt paths ->
+            let ptr = NativePtr.ofNativeInt paths
+
+
+
+            let files = 
+                Array.init cnt (fun i ->
+                    let mutable ptr = NativePtr.get ptr i
+                    if ptr = NativePtr.zero then 
+                        ""
+                    else
+                        let l = System.Collections.Generic.List<byte>()
+                        let mutable c = NativePtr.read ptr
+                        while c <> 0uy do
+                            l.Add c
+                            ptr <- NativePtr.add ptr 1
+                            c <- NativePtr.read ptr
+
+                        System.Text.Encoding.UTF8.GetString(l.ToArray())
+                )
+            dropFiles.Trigger files                 
+        ))
+
+    let enterLeave =
+        glfw.SetCursorEnterCallback(win, GlfwCallbacks.CursorEnterCallback(fun _ entered ->
+            if entered then
+                mouse.Enter(getPixelPostion())
+                mouseEnter.Trigger(getMousePosition())
+            else 
+                mouse.Leave(getPixelPostion())
+                mouseLeave.Trigger(getMousePosition())
+        ))    
+
+    let time =
+        let start = System.DateTime.Now
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        AVal.custom (fun _ ->
+            start + sw.Elapsed
+        )
+
+    let mutable isDisposed = false
+    let mutable beforeFullScreen = Box2i.FromMinAndSize(V2i.Zero, V2i(1024, 768))
+    let mutable averageFrameTime = MicroTime.Zero
+    let mutable averageGpuTime = MicroTime.Zero
+    let mutable renderContinuous = false
+    let mutable measureGpuTime = true
+
+    let mutable renderTask : IRenderTask = RenderTask.empty
+    let mutable renderTaskSub = 
+        renderTask.AddMarkingCallback (fun () ->
+            damaged <- true
+            glfw.PostEmptyEvent()
+        )
+
+    let mutable frameCount = 0
+    let mutable totalTime = MicroTime.Zero
+    let mutable totalGpuTime = MicroTime.Zero
+    let sw = System.Diagnostics.Stopwatch()
+
+    let mutable glfwCursor = NativePtr.zero<Silk.NET.GLFW.Cursor>
+    let mutable cursor = Cursor.Default
+
+    let device = app.Runtime.Device
+    let graphicsMode = GraphicsMode(Col.Format.BGRA, 8, 24, 8, 2, 1, ImageTrafo.MirrorY, vsync)
+    let mutable description = device.CreateSwapchainDescription(surface, graphicsMode)
+
+    let mutable swapchain : option<Swapchain> = None
+
+    member x.Cursor
+        with get() = cursor
+        and set c =
+            x.Invoke (fun () ->
+                if c = Cursor.None then
+                    if cursor <> Cursor.None then
+                        glfw.SetInputMode(win, CursorStateAttribute.Cursor, CursorModeValue.CursorHidden)
+                        if glfwCursor <> NativePtr.zero then glfw.DestroyCursor glfwCursor
+                        glfwCursor <- NativePtr.zero
+                        cursor <- c
+                else
+                    if cursor = Cursor.None then glfw.SetInputMode(win, CursorStateAttribute.Cursor, CursorModeValue.CursorNormal)
+                    let handle = 
+                        match c with
+                        | Cursor.None -> NativePtr.zero // unreachable
+                        | Cursor.Default -> NativePtr.zero
+                        | Cursor.Arrow -> glfw.CreateStandardCursor(CursorShape.Arrow)
+                        | Cursor.Hand -> glfw.CreateStandardCursor(CursorShape.Hand)
+                        | Cursor.HorizontalResize -> glfw.CreateStandardCursor(CursorShape.HResize)
+                        | Cursor.VerticalResize -> glfw.CreateStandardCursor(CursorShape.VResize)
+                        | Cursor.Text -> glfw.CreateStandardCursor(CursorShape.IBeam)
+                        | Cursor.Crosshair -> glfw.CreateStandardCursor(CursorShape.Crosshair)
+                        | Cursor.Custom(img, hot) ->
+                            let img = img.ToPixImage<byte>(Col.Format.RGBA)
+                            NativeVolume.using img.Volume (fun pSrc ->
+                                use dst = fixed (Array.zeroCreate<byte> (img.Size.X * img.Size.Y * 4))
+                                let pDst = NativeVolume<byte>(dst, VolumeInfo(0L, V3l(img.Size, 4), V3l(4, img.Size.X * 4, 1)))
+                                NativeVolume.copy pSrc pDst
+
+                                use pImg = 
+                                    fixed [| 
+                                        Silk.NET.GLFW.Image(
+                                            Width = img.Size.X,
+                                            Height = img.Size.Y,
+                                            Pixels = dst
+                                        )
+                                    |]
+
+                                glfw.CreateCursor(pImg, hot.X, hot.Y)
+                            )
+
+                    glfw.SetCursor(win, handle)
+                    if glfwCursor <> NativePtr.zero then glfw.DestroyCursor glfwCursor
+                    glfwCursor <- handle
+                    cursor <- c
+            )
+
+
+    member x.AfterRender = afterRender.Publish
+    member x.BeforeRender = beforeRender.Publish
+    member x.FramebufferSignature  = signature
+    member x.RenderTask
+        with get () = renderTask
+        and set (v: IRenderTask) = 
+            x.Invoke(fun () ->
+                renderTaskSub.Dispose() 
+                renderTask.Dispose()
+                renderTask <- v
+                renderTaskSub <- 
+                    v.AddMarkingCallback (fun () ->
+                        damaged <- true
+                        glfw.PostEmptyEvent()
+                    )
+                damaged <- true
+            )
+            glfw.PostEmptyEvent()
+
+    member x.Runtime = app.Runtime
+    member x.Samples = samples
+    member x.Sizes = currentSize :> aval<_>
+    member x.Time = time
+    member x.Keyboard = keyboard :> Aardvark.Application.IKeyboard
+    member x.Mouse = mouse :> Aardvark.Application.IMouse
+    
+    member x.SubSampling
+        with get() = 1.0
+        and set v = if v <> 1.0 then failwithf "[GLFW] SubSampling not implemented"
+
+    interface Aardvark.Application.IRenderTarget with
+        member x.AfterRender = x.AfterRender
+        member x.BeforeRender = x.BeforeRender
+        member x.FramebufferSignature = x.FramebufferSignature
+        member x.RenderTask
+            with get () = x.RenderTask
+            and set (v: IRenderTask) = x.RenderTask <- v
+        member x.Runtime = x.Runtime
+        member x.Samples = x.Samples
+        member x.Sizes = x.Sizes
+        member x.Time = x.Time
+
+        member x.SubSampling
+            with get() = x.SubSampling
+            and set v = x.SubSampling <- v
+
+    interface Aardvark.Application.IRenderControl with
+        member x.Cursor
+            with get() = x.Cursor
+            and set c = x.Cursor <- c
+        member x.Keyboard = x.Keyboard
+        member x.Mouse = x.Mouse
+       
+    interface Aardvark.Application.IRenderWindow with
+        member x.Run() = x.Run()
+       
+    member x.Dispose() =
+        if not isDisposed then
+            isDisposed <- true
+            app.RemoveExistingWindow x
+            app.Post (fun () -> 
+                glfw.HideWindow(win)
+                glfw.DestroyWindow(win)
+                //ctx.Dispose()
+                //info.Dispose()
+            )
+
+    interface System.IDisposable with
+        member x.Dispose() = x.Dispose()
+
+
+    [<CLIEvent>]
+    member x.WindowStateChanged = stateChanged.Publish
+    [<CLIEvent>]
+    member x.Closing = closeEvt.Publish
+    [<CLIEvent>]
+    member x.Resize = resize.Publish
+    [<CLIEvent>]
+    member x.FocusChanged = focus.Publish
+    [<CLIEvent>]
+    member x.WindowPositionChanged = wpChanged.Publish
+    [<CLIEvent>]
+    member x.ContentPositionChanged = cpChanged.Publish
+    [<CLIEvent>]
+    member x.DropFiles = dropFiles.Publish
+    [<CLIEvent>]
+    member x.KeyDown = keyDown.Publish
+    [<CLIEvent>]
+    member x.KeyUp = keyUp.Publish
+    [<CLIEvent>]
+    member x.KeyInput = keyInput.Publish
+
+    [<CLIEvent>]
+    member x.MouseDown = mouseDown.Publish
+    [<CLIEvent>]
+    member x.MouseUp = mouseUp.Publish
+    [<CLIEvent>]
+    member x.MouseMove = mouseMove.Publish
+    [<CLIEvent>]
+    member x.MouseWheel = mouseWheel.Publish
+    [<CLIEvent>]
+    member x.MouseEnter = mouseEnter.Publish
+    [<CLIEvent>]
+    member x.MouseLeave = mouseLeave.Publish
+
+
+    member x.WindowState
+        with get() = 
+            x.Invoke(fun () -> getWindowState())
+        and set (s : WindowState) =
+            x.Invoke(fun () ->
+                match s with
+                | WindowState.Maximized -> glfw.MaximizeWindow(win)
+                | WindowState.Minimized -> glfw.IconifyWindow(win)
+                | WindowState.Normal -> glfw.RestoreWindow(win)
+                | _ -> ()
+            )   
+
+    member x.Decorated
+        with get() = x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.Decorated))
+        and set b = x.Invoke(fun () -> glfw.SetWindowAttrib(win, WindowAttributeSetter.Decorated, b))         
+
+    member x.Fullcreen
+        with get() = 
+            x.Invoke(fun () -> 
+                glfw.GetWindowMonitor(win) <> NativePtr.zero
+            )
+        and set f =
+            x.Invoke(fun () ->
+                if f then 
+                    let mutable os = V2i.Zero
+                    let mutable oo = V2i.Zero
+                    glfw.GetWindowSize(win, &os.X, &os.Y)
+                    glfw.GetWindowPos(win, &oo.X, &oo.Y)
+                    beforeFullScreen <- Box2i.FromMinAndSize(oo, os)
+
+                    let m = glfw.GetPrimaryMonitor()
+                    let mode = glfw.GetVideoMode(m) |> NativePtr.read
+
+                    //let ws = V2i(round (float mode.Width / float scale.X), round(float mode.Height / float scale.Y))  
+
+                    glfw.SetWindowMonitor(win, m, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
+                else
+                    let o = beforeFullScreen.Min
+                    let s = beforeFullScreen.Size
+                    glfw.SetWindowMonitor(win, NativePtr.zero, o.X, o.Y, s.X, s.Y, 0)
+                damaged <- true                    
+                glfw.PostEmptyEvent()                            
+            )        
+
+    member x.Floating
+        with get() = x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.Floating))
+        and set b = x.Invoke(fun () -> glfw.SetWindowAttrib(win, WindowAttributeSetter.Floating, b))         
+
+    member x.Resizable
+        with get() = x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.Resizable))
+        and set b = x.Invoke(fun () -> glfw.SetWindowAttrib(win, WindowAttributeSetter.Resizable, b))         
+
+    member x.Transparent
+        with get() = x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.TransparentFramebuffer))
+
+    member x.MousePosition =
+        x.Invoke(fun () ->
+            let v = 
+                glfw.GetWindowAttrib(win, WindowAttributeGetter.Visible) &&
+                not (glfw.GetWindowAttrib(win, WindowAttributeGetter.Iconified))
+            if v then
+                let mutable pos = V2d.Zero
+                glfw.GetCursorPos(win, &pos.X, &pos.Y)
+                lastMousePosition <- pos * windowScale
+            
+            lastMousePosition         
+        )
+
+    member x.GetKeyName(key : Keys, code : int) =
+        match keyNameCache.TryGetValue((key, code)) with
+        | (true, name) -> name
+        | _ -> x.Invoke(fun () -> getKeyName key code)
+
+    member x.GetKeyName(key : Keys) = x.GetKeyName(key, -1)
+        
+
+    member private x.RunEvents(evts : seq<WindowEvent>) =
+        for e in evts do
+            match e with
+            | Run action -> action()
+            | Resize -> resize.Trigger(getResizeEvent())
+
+    member x.Invoke<'r>(action : unit -> 'r) : 'r =
+        app.Invoke(action)
+
+
+    member x.IsVisible 
+        with get() =
+            x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.Visible))         
+        and set v =
+            x.Invoke (fun () ->
+                if v then 
+                    app.AddVisibleWindow x
+                    glfw.ShowWindow(win)
+                else
+                    app.RemoveVisibleWindow x
+                    glfw.HideWindow(win)
+            )
+
+    member x.Title 
+        with get() = title
+        and set t =
+            x.Invoke(fun () ->
+                if title <> t then
+                    title <- t
+                    glfw.SetWindowTitle(win, t)
+            ) 
+
+    member x.Focus() = 
+        x.Invoke(fun () ->
+            let c = glfw.GetWindowAttrib(win, WindowAttributeGetter.Focused)
+            if not c then glfw.FocusWindow(win)
+        )       
+
+    member x.Focused = x.Invoke(fun () -> glfw.GetWindowAttrib(win, WindowAttributeGetter.Focused))             
+
+    member x.WindowSize
+        with get() =
+            x.Invoke(fun () ->
+                let mutable ps = V2i.Zero
+                let mutable scale = V2f.Zero
+                let border = getFrameBorder()
+
+                glfw.GetWindowSize(win, &ps.X, &ps.Y)
+                glfw.GetWindowContentScale(win, &scale.X, &scale.Y)   
+                let ws = ps + border.Min + border.Max
+                V2i(round (float scale.X * float ws.X), round(float scale.Y * float ws.Y))  
+            )
+        and set (v : V2i) = 
+            x.Invoke(fun () ->
+                let mutable scale = V2f.Zero
+                let border = getFrameBorder()
+
+                glfw.GetWindowContentScale(win, &scale.X, &scale.Y)   
+
+                let ws = V2i(round (float v.X / float scale.X), round(float v.Y / float scale.Y))  
+                let ps = V2i.Max(V2i.II, ws - (border.Min + border.Max))
+
+                glfw.SetWindowSize(win, ps.X, ps.Y)
+            )
+
+    member x.FramebufferSize
+        with get() = 
+            x.Invoke(fun () ->
+                let (w,h) = glfw.GetFramebufferSize(win)
+                V2i(w,h)
+            )
+        and set (v : V2i) =
+            x.Invoke(fun () ->
+                let mutable scale = V2f.Zero
+                glfw.GetWindowContentScale(win, &scale.X, &scale.Y)   
+                let ws = V2i(round (float v.X / float scale.X), round(float v.Y / float scale.Y)) 
+
+                glfw.SetWindowSize(win, ws.X, ws.Y)
+            )        
+
+    member x.Icon 
+        with get() = icon
+        and set (v : option<PixImageMipMap>) =
+            x.Invoke(fun () ->
+                let inline toMatrix(img : PixImage<byte>) =
+                    let dst = Matrix<uint32>(img.Size)
+                    dst.SetMap(img.GetMatrix<C4b>(), fun c ->
+                        (uint32 c.A <<< 24) ||| (uint32 c.B <<< 16) ||| (uint32 c.G <<< 8) ||| (uint32 c.R)
+                    ) |> ignore
+                    dst
+
+                let rec mipMaps (acc : System.Collections.Generic.List<Silk.NET.GLFW.Image>) (i : int) (img : PixImage[]) =
+                    if i >= img.Length then
+                        let arr = acc.ToArray()
+                        use img = fixed arr
+                        glfw.SetWindowIcon(win, acc.Count, img)
+                    else
+                        let mat = toMatrix (img.[i].ToPixImage<byte>())
+                        use pdata = fixed mat.Data
+                        acc.Add(Silk.NET.GLFW.Image(Width = int mat.Size.X, Height = int mat.Size.Y, Pixels = NativePtr.cast pdata))
+
+                        mipMaps acc (i+1) img                       
+
+                match v with
+                | Some img ->
+                    let l = System.Collections.Generic.List()
+                    mipMaps l 0 img.ImageArray
+                | None ->
+                    glfw.SetWindowIcon(win, 0, NativePtr.zero)  
+
+                                  
+                icon <- v                            
+            )
+
+    member x.WindowPosition
+        with get() = 
+            x.Invoke(fun () ->
+                let mutable pos = V2i.Zero
+                glfw.GetWindowPos(win, &pos.X, &pos.Y)
+                let b = getFrameBorder()
+                pos - b.Min
+            )
+        and set (pos : V2i) =   
+            x.Invoke(fun () ->
+                let b = getFrameBorder()
+                let pp = b.Min + pos
+                glfw.SetWindowPos(win, pp.X, pp.Y)
+            ) 
+
+    member x.ContentPosition
+        with get() = 
+            x.Invoke(fun () ->
+                let mutable pos = V2i.Zero
+                glfw.GetWindowPos(win, &pos.X, &pos.Y)
+                pos
+            )
+        and set (pos : V2i) =   
+            x.Invoke(fun () ->
+                glfw.SetWindowPos(win, pos.X, pos.Y)
+            )         
+
+    member x.Close() =
+        x.Invoke(fun () ->
+            glfw.HideWindow(win)
+            app.RemoveExistingWindow x
+        )
+
+    member x.VSync
+        with get() = enableVSync
+        and set v = enableVSync <- v
+       
+    member x.ShowFrameTime 
+        with get() = showFrameTime
+        and set v =
+            if v <> showFrameTime then
+                showFrameTime <- v
+                x.Invoke(fun () ->
+                    glfw.SetWindowTitle(win, title)
+                    currentTitle <- title
+                )
+
+    member x.AverageFrameTime = averageFrameTime
+    member x.AverageGPUFrameTime = averageGpuTime
+
+    member x.MeasureGpuTime
+        with get() = measureGpuTime
+        and set v = measureGpuTime <- v
+
+    member x.RenderAsFastAsPossible
+        with get() = renderContinuous
+        and set v =
+            if renderContinuous <> v then
+                renderContinuous <- v
+                if v then glfw.PostEmptyEvent()
+                else ()
+
+    member internal x.Redraw() : bool =
+        if renderContinuous || damaged then
+            sw.Restart()
+            try
+                damaged <- false
+                if vsync <> enableVSync then
+                    vsync <- enableVSync
+                    if enableVSync then glfw.SwapInterval(1)
+                    else glfw.SwapInterval(0)
+
+                beforeRender.Trigger()
+                let s = x.FramebufferSize
+                match swapchain with
+                | Some ch when ch.Size = s -> 
+                    ch.RenderFrame (fun fbo ->
+                        let output = OutputDescription.ofFramebuffer fbo
+                        renderTask.Run(AdaptiveToken.Top, RenderToken.Empty, output)
+                    )
+                | _ ->
+                    match swapchain with
+                    | Some o -> o.Dispose()
+                    | None -> ()
+
+                    let swap = device.CreateSwapchain(description)
+                    swapchain <- Some swap
+                    swap.RenderFrame (fun fbo ->
+                        let output = OutputDescription.ofFramebuffer fbo
+                        renderTask.Run(AdaptiveToken.Top, RenderToken.Empty, output)
+                    )
+
+                renderContinuous || renderTask.OutOfDate
+            finally 
+                afterRender.Trigger()  
+                transact time.MarkOutdated  
+
+                sw.Stop()
+        else
+            renderContinuous || renderTask.OutOfDate
+
+    member x.Run() =
+        app.Run x          
+
