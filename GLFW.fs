@@ -10,7 +10,9 @@ open FSharp.Control
 open FSharp.Data.Adaptive
 open Aardvark.Rendering.Vulkan
 
-type Cursor = Aardvark.Application.Cursor
+type private IGamepad = Aardvark.Application.IGamepad
+type private GamepadButton = Aardvark.Application.GamepadButton
+type private Cursor = Aardvark.Application.Cursor
 
 #nowarn "9"
 #nowarn "51"
@@ -226,7 +228,7 @@ module private Translations =
         | _ -> Aardvark.Application.MouseButtons.None
 
 [<AutoOpen>]
-module MissingGlfwFunctions =
+module private MissingGlfwFunctions =
     open System.Runtime.InteropServices
 
     type private GetWindowContentScaleDel = delegate of nativeptr<WindowHandle> * byref<float32> * byref<float32> -> unit
@@ -365,7 +367,7 @@ module internal IconLoader =
         let sizes = Array.sortDescending [| 16; 24; 32; 48; 64; 128; 256 |]
         let ass = typeof<Self>.Assembly
         let name = ass.GetManifestResourceNames() |> Array.find (fun n -> n.EndsWith "aardvark.png")
-        let img = (ass.GetManifestResourceStream name |> PixImage.Create).ToPixImage<byte>(Col.Format.RGBA)
+        let img = (ass.GetManifestResourceStream name |> PixImageSharp.Create).ToPixImage<byte>(Col.Format.RGBA)
 
         let levels =
             let mutable last = img
@@ -393,17 +395,147 @@ module internal IconLoader =
             Log.warn "could not load icon. %A" e.Message
             None
 
-module Config =
-    let mutable hideCocoaMenuBar = false
+
+type GlfwGamepad() =
+    let a = cval false
+    let b = cval false
+    let x = cval false
+    let y = cval false
+    let ls = cval false
+    let rs = cval false
+    let lsh = cval false
+    let rsh = cval false
+
+    let pl = cval false
+    let pr = cval false
+    let pu = cval false
+    let pd = cval false
+    let select = cval false
+    let start = cval false
+
+    let down = EventSource<GamepadButton>()
+    let up = EventSource<GamepadButton>()
+
+    let left = cval V2d.Zero
+    let right = cval V2d.Zero
+    let leftTrigger = cval 0.0
+    let rightTrigger = cval 0.0
+
+    let buttons =
+        [|
+            GamepadButton.A
+            GamepadButton.B
+            GamepadButton.Unknown
+            GamepadButton.X
+            GamepadButton.Y
+            GamepadButton.Unknown
+            GamepadButton.LeftShoulder; GamepadButton.RightShoulder
+            GamepadButton.Unknown; GamepadButton.Unknown; GamepadButton.Unknown
+            GamepadButton.Start
+            GamepadButton.Unknown
+            GamepadButton.LeftStick; GamepadButton.RightStick
+            GamepadButton.Unknown
+            GamepadButton.Select
+            GamepadButton.CrossUp; GamepadButton.CrossRight; GamepadButton.CrossDown; GamepadButton.CrossLeft
+
+        |]
+
+    let changeables =
+        [|
+            a; b
+            cval false
+            x; y
+            cval false
+            lsh; rsh
+            cval false; cval false; cval false
+            start; 
+            cval false
+            ls; rs
+            cval false
+            select
+            pu; pr; pd; pl
+        |]
+
+
+    member _.Update(glfw : Glfw, id : int) =
+        let mutable cnt = 0
+        let ptr = glfw.GetJoystickButtons(id, &cnt)
+
+        let inline trigger (index : int) (state : bool) =
+            if index < buttons.Length then
+                let b = buttons.[index]
+                if b <> GamepadButton.Unknown then
+                    let o = changeables.[index]
+                    if o.Value <> state then
+                        o.Value <- state
+                        if state then down.Emit(b) else up.Emit(b)
+
+        for i in 0 .. cnt - 1 do
+            trigger i (NativePtr.get ptr i <> 0uy)
+
+        let axes = glfw.GetJoystickAxes(id, &cnt)
+        let mutable vl = V2d.Zero
+        let mutable vr = V2d.Zero
+        let mutable vlt = 0.0
+        let mutable vrt = 0.0
+
+        for i in 0 .. cnt - 1 do
+            let v = NativePtr.get axes i
+            match i with
+            | 0 -> vl.X <- float v
+            | 1 -> vl.Y <- float -v
+            | 2 -> vr.X <- float v
+            | 3 -> vr.Y <- float -v
+            | 4 -> vrt <- float v * 0.5 + 0.5
+            | 5 -> vlt <- float v * 0.5 + 0.5
+            | _ -> Log.warn "bad axis %d: %.3f" i v
+
+        let vl = 
+            if Vec.length vl > 0.1 then vl
+            else V2d.Zero
+
+        let vr = 
+            if Vec.length vr > 0.1 then vr
+            else V2d.Zero
+
+        left.Value <- vl
+        right.Value <- vr
+        leftTrigger.Value <- vlt
+        rightTrigger.Value <- vrt
+
+    interface IGamepad with
+        member __.Down = down :> Aardvark.Base.IEvent<_>
+        member __.Up = up :> Aardvark.Base.IEvent<_>
+        member __.A = a :> aval<_>
+        member __.B = b :> aval<_>
+        member __.X = x :> aval<_>
+        member __.Y = y :> aval<_>
+        member __.LeftStick = left :> aval<_>
+        member __.RightStick = right :> aval<_>
+        member __.LeftTrigger = leftTrigger :> aval<_>
+        member __.RightTrigger = rightTrigger :> aval<_>
+        member __.LeftShoulder = lsh :> aval<_>
+        member __.RightShoulder = rsh :> aval<_>
+        member __.Select = select :> aval<_>
+        member __.Start = start :> aval<_>
+        member __.CrossUp = pu :> aval<_>
+        member __.CrossDown = pd :> aval<_>
+        member __.CrossLeft = pl :> aval<_>
+        member __.CrossRight = pr :> aval<_>
+        member __.LeftStickDown = ls :> aval<_>
+        member __.RightStickDown = rs :> aval<_>
+
+
+
 
 [<Sealed>]
-type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
+type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar : bool) =
     [<System.ThreadStatic; DefaultValue>]
     static val mutable private IsMainThread_ : bool
 
     let glfw = Glfw.GetApi()
     do 
-        if Config.hideCocoaMenuBar then
+        if hideCocoaMenuBar then
             Log.line "hiding cocoa menubar"
             glfw.InitHint(Silk.NET.GLFW.InitHint.CocoaMenubar, false) // glfwInitHint(GLFW_COCOA_MENUBAR, GLFW_FALSE);
         
@@ -501,7 +633,6 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
             if old <> NativePtr.zero then
                 glfw.MakeContextCurrent(NativePtr.zero)
 
-            let mutable glContext = false
             let mutable parent : nativeptr<WindowHandle> = NativePtr.zero
             glfw.DefaultWindowHints()
 
@@ -512,7 +643,6 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
             glfw.WindowHint(WindowHintBool.Resizable, cfg.resizable)
             glfw.WindowHint(WindowHintInt.RefreshRate, 0)
             glfw.WindowHint(WindowHintBool.FocusOnShow, cfg.focus)
-
 
             let win = glfw.CreateWindow(cfg.width, cfg.height, cfg.title, NativePtr.zero, parent)
             if win = NativePtr.zero then failwith "GLFW could not create window"
@@ -542,9 +672,6 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
             surf.AddReference()
             let w = new Window(x, win, cfg.title, cfg.vsync, surf, cfg.samples)
 
-            Log.warn "SURFACE: %A" surf.Handle.Handle
-
-
             match aardvarkIcon with
             | Some icon -> w.Icon <- Some icon
             | _ -> ()
@@ -559,7 +686,7 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
         for w in ws do w.IsVisible <- true
 
         while existingWindows.Count > 0 do
-            if wait then glfw.WaitEvents()
+            if wait then glfw.WaitEventsTimeout(0.01)
             else glfw.PollEvents()
 
             let mutable action = Unchecked.defaultof<unit -> unit>
@@ -567,11 +694,15 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime) =
                 try action()
                 with _ -> ()
 
+            for e in existingWindows do
+                e.Update()
+
             wait <- true
             for w in visibleWindows do
                 let v = w.Redraw()
                 if v then wait <- false
 
+    new(runtime : Runtime) = Application(runtime, false)
 
 and Window internal(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : Aardvark.Rendering.Vulkan.Surface, samples : int) as this =
     static let keyNameCache = System.Collections.Concurrent.ConcurrentDictionary<Keys * int, string>()
@@ -852,6 +983,66 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
                 mouseLeave.Trigger(getMousePosition())
         ))    
 
+
+    let gamepads, updateGamepads =
+        let mutable state : GamepadState = GamepadState()
+        let connected = 
+            let init (id : int, _) =
+                let g = GlfwGamepad()
+                g.Update(glfw, id)
+                g
+
+            let update (g : GlfwGamepad) (id : int, _) =
+                g.Update(glfw, id)
+                g
+
+            FSharp.Data.Traceable.ChangeableModelMap<string, int * _, GlfwGamepad, IGamepad>(
+                HashMap.empty,
+                init, update,
+                (fun g -> g :> IGamepad)
+            )
+        
+        let mutable state = HashMap.empty
+        let mutable guids = HashMap.empty
+        
+        let mutable unique = 0
+        let update() =
+            transact (fun () ->
+                let uid = Interlocked.Increment &unique
+                state |> HashMap.map (fun _ v -> v, uid) |> connected.Update
+            )
+
+        let callback =
+            glfw.SetJoystickCallback(GlfwCallbacks.JoystickCallback(fun id c ->
+                match c with
+                | ConnectedState.Connected ->
+                    let guid = glfw.GetJoystickGUID(id)
+                    state <- HashMap.add guid id state
+                    guids <- HashMap.add id guid guids
+                    update()
+                | _ ->
+                    match HashMap.tryRemove id guids with
+                    | Some (guid, rest) ->
+                        guids <- rest
+                        state <- HashMap.remove guid state
+                        update()
+                    | None ->
+                        ()
+            ))
+
+
+        for i in 0 .. 15 do
+            if glfw.JoystickPresent(i) then
+                let guid = glfw.GetJoystickGUID i
+                state <- HashMap.add guid i state
+                guids <- HashMap.add i guid guids
+
+        update()
+
+
+        connected :> amap<_,_>, update
+
+
     let time =
         let start = System.DateTime.Now
         let sw = System.Diagnostics.Stopwatch.StartNew()
@@ -960,7 +1151,8 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
     member x.Time = time
     member x.Keyboard = keyboard :> Aardvark.Application.IKeyboard
     member x.Mouse = mouse :> Aardvark.Application.IMouse
-    
+    member x.Gamepads = gamepads :> amap<_,_>
+
     member x.SubSampling
         with get() = 1.0
         and set v = if v <> 1.0 then failwithf "[GLFW] SubSampling not implemented"
@@ -1331,6 +1523,9 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
                 sw.Stop()
         else
             renderContinuous || renderTask.OutOfDate
+
+    member internal x.Update() =
+        updateGamepads()
 
     member x.Run() =
         app.Run x          

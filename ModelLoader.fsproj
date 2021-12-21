@@ -6,7 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="resources\aardvark.png" />
+    <Compile Include="Gamepad.fs"/>
     <Compile Include="GLFW.fs"/>
+    <Compile Include="CameraController.fs"/>
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
