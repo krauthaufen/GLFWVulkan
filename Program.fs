@@ -131,10 +131,8 @@ module GamepadController =
 [<EntryPoint>]
 let main args =
     Aardvark.Init()
-    // let app = new HeadlessVulkanApplication(false, ["VK_KHR_swapchain"; "VK_EXT_swapchain_colorspace"; "VK_MVK_moltenvk";"VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"], fun _ -> ["VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"])
-    // app.Runtime.ShaderCachePath <- None
 
-    let app = new VulkanApplication(false)
+    let app = new VulkanApplication()
     let win = app.CreateGameWindow()
 
 
