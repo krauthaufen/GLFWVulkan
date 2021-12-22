@@ -365,8 +365,11 @@ module IconLoader =
         let sizes = Array.sortDescending [| 16; 24; 32; 48; 64; 128; 256 |]
         let ass = typeof<Self>.Assembly
         let name = ass.GetManifestResourceNames() |> Array.find (fun n -> n.EndsWith "aardvark.png")
-        let img = (ass.GetManifestResourceStream name |> PixImageSharp.Create).ToPixImage<byte>(Col.Format.RGBA)
 
+        let img = 
+            use src = ass.GetManifestResourceStream name
+            PixImageSharp.Create(src).ToPixImage<byte>(Col.Format.RGBA)
+        
         let levels =
             let mutable last = img
             sizes |> Array.map (fun s ->

@@ -15,6 +15,7 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="1.0.4" />
     <PackageReference Include="DevILSharp" Version="0.2.11" />
     <PackageReference Include="Aardvark.Base" Version="5.1.25" />
     <PackageReference Include="Aardvark.Base.Essentials" Version="5.1.25" />

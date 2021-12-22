@@ -131,8 +131,8 @@ module GamepadController =
 [<EntryPoint>]
 let main args =
     Aardvark.Init()
-
-    let app = new VulkanApplication()
+    VulkanApplication.SetDeviceChooser (fun d -> d |> Array.findIndex (fun d -> d.Type = VkPhysicalDeviceType.DiscreteGpu))
+    let app = new OpenGlApplication()
     let win = app.CreateGameWindow()
 
 
