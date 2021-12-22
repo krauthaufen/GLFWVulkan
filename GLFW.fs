@@ -8,7 +8,6 @@ open Silk.NET.GLFW
 open System.Runtime.InteropServices
 open FSharp.Control
 open FSharp.Data.Adaptive
-open Aardvark.Rendering.Vulkan
 
 type private IGamepad = Aardvark.Application.IGamepad
 type private GamepadButton = Aardvark.Application.GamepadButton
@@ -526,10 +525,23 @@ type GlfwGamepad() =
         member __.RightStickDown = rs :> aval<_>
 
 
+type ISwapchain =
+    inherit System.IDisposable
+    abstract Size : V2i
+    abstract Run : IRenderTask -> unit
+
+type IWindowSurface =
+    inherit System.IDisposable
+    abstract Signature : IFramebufferSignature
+    abstract CreateSwapchain : V2i -> ISwapchain
+    abstract Handle : obj
+type IWindowInterop =
+    abstract Boot : Glfw -> unit
+    abstract CreateSurface : IRuntime * WindowConfig * Glfw * nativeptr<WindowHandle> -> IWindowSurface
+    abstract WindowHints : WindowConfig * Glfw -> unit
 
 
-[<Sealed>]
-type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar : bool) =
+type Application(runtime : Aardvark.Rendering.IRuntime, interop : IWindowInterop, hideCocoaMenuBar : bool) =
     [<System.ThreadStatic; DefaultValue>]
     static val mutable private IsMainThread_ : bool
 
@@ -541,6 +553,8 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar :
         
         if not (glfw.Init()) then  
             failwith "GLFW init failed"
+
+        interop.Boot glfw
 
     let queue = System.Collections.Concurrent.ConcurrentQueue<unit -> unit>()
 
@@ -626,9 +640,6 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar :
 
     member x.CreateWindow(cfg : WindowConfig) =
         x.Invoke(fun () ->
-            // if not (glfw.VulkanSupported()) then
-            //     failwithf "Vulkan not supported by GLFW on your platform"
-                
             let old = glfw.GetCurrentContext()
             if old <> NativePtr.zero then
                 glfw.MakeContextCurrent(NativePtr.zero)
@@ -636,7 +647,7 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar :
             let mutable parent : nativeptr<WindowHandle> = NativePtr.zero
             glfw.DefaultWindowHints()
 
-            glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi)
+            interop.WindowHints(cfg, glfw)
 
             glfw.WindowHint(WindowHintBool.TransparentFramebuffer, cfg.transparent)
             glfw.WindowHint(WindowHintBool.Visible, false)
@@ -647,30 +658,9 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar :
             let win = glfw.CreateWindow(cfg.width, cfg.height, cfg.title, NativePtr.zero, parent)
             if win = NativePtr.zero then failwith "GLFW could not create window"
             
-            let mutable surf = Unchecked.defaultof<_>
-            let instanceHandle = Silk.NET.Core.Native.VkHandle(runtime.Device.Instance.Handle)
-            let ret = glfw.CreateWindowSurface(instanceHandle, win, NativePtr.toVoidPtr NativePtr.zero<byte>, &&surf)
-            let mutable desc = NativePtr.zero
-            let code = glfw.GetError(&desc)
-            
-            if code <> ErrorCode.NoError then
-                let bytes =
-                    let res = System.Collections.Generic.List()
-                    let mutable p = desc
-                    let mutable c = NativePtr.read p
-                    while c <> 0uy do
-                        res.Add (char c)
-                        p <- NativePtr.add p 1
-                        c <- NativePtr.read p
-                    res.ToArray()
-
-                Log.warn "%A: %s" code (System.String(bytes))
-
-
-            let surface = Aardvark.Rendering.Vulkan.KHRSurface.VkSurfaceKHR(int64 surf.Handle)
-            let surf = new Aardvark.Rendering.Vulkan.Surface(runtime.Device, surface)
-            surf.AddReference()
-            let w = new Window(x, win, cfg.title, cfg.vsync, surf, cfg.samples)
+            let surface = interop.CreateSurface(runtime, cfg, glfw, win)
+        
+            let w = new Window(x, win, cfg.title, cfg.vsync, surface, cfg.samples)
 
             match aardvarkIcon with
             | Some icon -> w.Icon <- Some icon
@@ -702,9 +692,9 @@ type Application(runtime : Aardvark.Rendering.Vulkan.Runtime, hideCocoaMenuBar :
                 let v = w.Redraw()
                 if v then wait <- false
 
-    new(runtime : Runtime) = Application(runtime, false)
+    new(runtime, swap) = Application(runtime, swap, false)
 
-and Window internal(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : Aardvark.Rendering.Vulkan.Surface, samples : int) as this =
+and Window internal(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : IWindowSurface, samples : int) as this =
     static let keyNameCache = System.Collections.Concurrent.ConcurrentDictionary<Keys * int, string>()
 
     let glfw = app.Glfw
@@ -824,11 +814,11 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
     let keyboard = Aardvark.Application.EventKeyboard()
     let mouse = Aardvark.Application.EventMouse(true)
 
-    let signature =
-        app.Runtime.CreateFramebufferSignature(samples, [
-            DefaultSemantic.Colors, RenderbufferFormat.Rgba8
-            DefaultSemantic.Depth, RenderbufferFormat.Depth24Stencil8
-        ])
+    // let signature =
+    //     app.Runtime.CreateFramebufferSignature(samples, [
+    //         DefaultSemantic.Colors, RenderbufferFormat.Rgba8
+    //         DefaultSemantic.Depth, RenderbufferFormat.Depth24Stencil8
+    //     ])
 
     let currentSize =
         let mutable s = V2i.Zero
@@ -1072,11 +1062,13 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
     let mutable glfwCursor = NativePtr.zero<Silk.NET.GLFW.Cursor>
     let mutable cursor = Cursor.Default
 
-    let device = app.Runtime.Device
-    let graphicsMode = GraphicsMode(Col.Format.BGRA, 8, 24, 8, 2, 1, ImageTrafo.MirrorY, vsync)
-    let mutable description = device.CreateSwapchainDescription(surface, graphicsMode)
+    // let device = app.Runtime.Device
+    // let graphicsMode = GraphicsMode(Col.Format.BGRA, 8, 24, 8, 2, 1, ImageTrafo.MirrorY, vsync)
+    // let mutable description = device.CreateSwapchainDescription(surface, graphicsMode)
 
-    let mutable swapchain : option<Swapchain> = None
+    let mutable swapchain : option<ISwapchain> = None
+
+    member x.Surface = surface
 
     member x.Cursor
         with get() = cursor
@@ -1128,7 +1120,7 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
 
     member x.AfterRender = afterRender.Publish
     member x.BeforeRender = beforeRender.Publish
-    member x.FramebufferSignature  = signature
+    member x.FramebufferSignature  = surface.Signature
     member x.RenderTask
         with get () = renderTask
         and set (v: IRenderTask) = 
@@ -1499,21 +1491,15 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
                 let s = x.FramebufferSize
                 match swapchain with
                 | Some ch when ch.Size = s -> 
-                    ch.RenderFrame (fun fbo ->
-                        let output = OutputDescription.ofFramebuffer fbo
-                        renderTask.Run(AdaptiveToken.Top, RenderToken.Empty, output)
-                    )
+                    ch.Run renderTask
                 | _ ->
                     match swapchain with
                     | Some o -> o.Dispose()
                     | None -> ()
 
-                    let swap = device.CreateSwapchain(description)
+                    let swap = surface.CreateSwapchain(s)
                     swapchain <- Some swap
-                    swap.RenderFrame (fun fbo ->
-                        let output = OutputDescription.ofFramebuffer fbo
-                        renderTask.Run(AdaptiveToken.Top, RenderToken.Empty, output)
-                    )
+                    swap.Run renderTask
 
                 renderContinuous || renderTask.OutOfDate
             finally 

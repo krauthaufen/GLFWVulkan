@@ -131,50 +131,15 @@ module GamepadController =
 [<EntryPoint>]
 let main args =
     Aardvark.Init()
-    let app = new HeadlessVulkanApplication(false, ["VK_KHR_swapchain"; "VK_EXT_swapchain_colorspace"; "VK_MVK_moltenvk";"VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"], fun _ -> ["VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"])
-    app.Runtime.ShaderCachePath <- None
+    // let app = new HeadlessVulkanApplication(false, ["VK_KHR_swapchain"; "VK_EXT_swapchain_colorspace"; "VK_MVK_moltenvk";"VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"], fun _ -> ["VK_EXT_metal_surface"; "VK_MVK_macos_surface"; "VK_KHR_surface"])
+    // app.Runtime.ShaderCachePath <- None
 
-    let glfw = Application(app.Runtime)
-    let win = 
-        glfw.CreateWindow { 
-            width = 1024
-            height = 768
-            title = "Yeah"
-            focus = true
-            resizable = true
-            vsync = true
-            transparent = false
-            opengl = false
-            physicalSize = false
-            samples = 1
-        }
+    let app = new VulkanApplication(false)
+    let win = app.CreateGameWindow()
 
 
     let angularVelocity = AVal.constant 2.0
     let moveSpeed = cval 5.0
-
-    // let gamepads =
-    //     let callbacks = Dict<string, System.IDisposable>()
-    //     win.Gamepads.AddCallback(fun _state delta ->
-    //         for key, op in delta do
-    //             match callbacks.TryRemove key with
-    //             | (true, d) -> d.Dispose()
-    //             | _ -> ()
-    //             match op with
-    //             | Remove -> ()
-    //             | Set v ->  
-    //                 let d = 
-    //                     v.Down.Values.Subscribe (fun b ->
-    //                         match b with
-    //                         | GamepadButton.RightShoulder -> transact (fun () -> moveSpeed.Value <- moveSpeed.Value + 0.5)
-    //                         | GamepadButton.LeftShoulder -> transact (fun () -> moveSpeed.Value <- max 0.0 (moveSpeed.Value - 0.5))
-    //                         | _ -> ()
-    //                     )
-
-    //                 callbacks.[key] <- d
-    //     )
-
-
 
     let initial = CameraView.lookAt (V3d(3,4,5)) V3d.Zero V3d.OOI
     let view =
@@ -221,11 +186,11 @@ let main args =
 
     win.RenderTask <-
         RenderTask.ofList [
-            app.Runtime.CompileClear(win.FramebufferSignature, clear { color C4f.Black; depth 1.0; stencil 0 })
+            app.Runtime.CompileClear(win.FramebufferSignature, clear { color C4f.Red; depth 1.0; stencil 0 })
             app.Runtime.CompileRender(win.FramebufferSignature, sg)
         ]
 
-    glfw.Run(win)
+    win.Run()
 
 
     0

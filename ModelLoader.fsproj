@@ -9,6 +9,8 @@
     <EmbeddedResource Include="resources\aardvark.png" />
     <Compile Include="Gamepad.fs"/>
     <Compile Include="GLFW.fs"/>
+    <Compile Include="GLFW.OpenGL.fs"/>
+    <Compile Include="GLFW.Vulkan.fs"/>
     <Compile Include="CameraController.fs"/>
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -23,10 +25,12 @@
     <PackageReference Include="Aardvark.Base.FSharp" Version="5.1.25" />
     <PackageReference Include="Aardvark.Rendering" Version="5.1.22" />
     <PackageReference Include="Aardvark.Rendering.Vulkan" Version="5.1.22" />
+    <PackageReference Include="Aardvark.Rendering.GL" Version="5.1.22" />
     <PackageReference Include="Aardvark.Application" Version="5.1.22" />
     <PackageReference Include="Aardvark.SceneGraph" Version="5.1.22" />
     <PackageReference Include="Silk.NET.Core" Version="[2.11.0]" />
     <PackageReference Include="Silk.NET.GLFW" Version="[2.11.0]" />
+    <PackageReference Include="Unofficial.OpenTK" Version="[3.0.20]" />
   </ItemGroup>
 
 </Project>
