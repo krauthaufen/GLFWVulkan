@@ -13,8 +13,7 @@ open Aardvark.Application
 #nowarn "9"
 
 
-module Vulkan =
-
+module private Vulkan =
     let createSurface (runtime : Runtime) (cfg: WindowConfig) (glfw : Glfw) (win : nativeptr<WindowHandle>) =
         let device = runtime.Device
         use pSurf = fixed [| Unchecked.defaultof<_> |]

@@ -4,6 +4,7 @@ open Microsoft.FSharp.NativeInterop
 open Aardvark.Base
 open Aardvark.Rendering
 open System.Threading
+open System.Threading.Tasks
 open Silk.NET.GLFW
 open System.Runtime.InteropServices
 open FSharp.Control
@@ -16,7 +17,7 @@ type private Cursor = Aardvark.Application.Cursor
 #nowarn "9"
 #nowarn "51"
 
-module private Translations =
+module Translations =
 
     type K = Silk.NET.GLFW.Keys
     type A = Aardvark.Application.Keys
@@ -227,7 +228,7 @@ module private Translations =
         | _ -> Aardvark.Application.MouseButtons.None
 
 [<AutoOpen>]
-module private MissingGlfwFunctions =
+module MissingGlfwFunctions =
     open System.Runtime.InteropServices
 
     type private GetWindowContentScaleDel = delegate of nativeptr<WindowHandle> * byref<float32> * byref<float32> -> unit
@@ -267,12 +268,12 @@ module private MissingGlfwFunctions =
 
                 System.Text.Encoding.UTF8.GetString(l.ToArray())
 
-type internal WindowEvent =
+type WindowEvent =
     | Resize
     | Run of action : (unit -> unit)
 
 
-type KeyEvent internal(key : Aardvark.Application.Keys, scanCode : int, action : InputAction, modifiers : KeyModifiers, keyName : string) =
+type KeyEvent(key : Aardvark.Application.Keys, scanCode : int, action : InputAction, modifiers : KeyModifiers, keyName : string) =
     member x.Key = key
     member x.ScanCode = scanCode
     member x.Name = keyName  
@@ -309,7 +310,7 @@ type ResizeEvent(framebufferSize : V2i, physicalSize : V2i, windowSize : V2i) =
     override x.ToString() = 
         sprintf "Resize { framebuffer: %A; physical: %A; window: %A }" framebufferSize physicalSize windowSize
 
-type MouseEvent internal(button : Aardvark.Application.MouseButtons, position: V2d, action : InputAction, modifiers : KeyModifiers) =
+type MouseEvent(button : Aardvark.Application.MouseButtons, position: V2d, action : InputAction, modifiers : KeyModifiers) =
     member x.Button = button
     member x.Alt = int (modifiers &&& KeyModifiers.Alt) <> 0
     member x.Shift = int (modifiers &&& KeyModifiers.Shift) <> 0
@@ -341,8 +342,6 @@ type WindowState =
     | Invisible = 3
 
 
-open System.Threading.Tasks
-
 
 type WindowConfig =
     {
@@ -359,7 +358,7 @@ type WindowConfig =
     }    
 
 
-module internal IconLoader = 
+module IconLoader = 
     
     type private Self = Self
     let private getIcon'() = 
@@ -524,7 +523,6 @@ type GlfwGamepad() =
         member __.LeftStickDown = ls :> aval<_>
         member __.RightStickDown = rs :> aval<_>
 
-
 type ISwapchain =
     inherit System.IDisposable
     abstract Size : V2i
@@ -535,6 +533,7 @@ type IWindowSurface =
     abstract Signature : IFramebufferSignature
     abstract CreateSwapchain : V2i -> ISwapchain
     abstract Handle : obj
+
 type IWindowInterop =
     abstract Boot : Glfw -> unit
     abstract CreateSurface : IRuntime * WindowConfig * Glfw * nativeptr<WindowHandle> -> IWindowSurface
@@ -567,20 +566,20 @@ type Application(runtime : Aardvark.Rendering.IRuntime, interop : IWindowInterop
 
     member x.Runtime = runtime
 
-    member internal x.AddExistingWindow(w : Window) =
+    member x.AddExistingWindow(w : Window) =
         existingWindows.Add w |> ignore
         glfw.PostEmptyEvent()
 
-    member internal x.RemoveExistingWindow(w : Window) =
+    member x.RemoveExistingWindow(w : Window) =
         existingWindows.Remove w |> ignore
         visibleWindows.Remove w |> ignore
         glfw.PostEmptyEvent()
 
-    member internal x.AddVisibleWindow(w : Window) =
+    member x.AddVisibleWindow(w : Window) =
         visibleWindows.Add w |> ignore
         glfw.PostEmptyEvent()
 
-    member internal x.RemoveVisibleWindow(w : Window) =
+    member x.RemoveVisibleWindow(w : Window) =
         visibleWindows.Remove w |> ignore
         glfw.PostEmptyEvent()
 
@@ -694,7 +693,7 @@ type Application(runtime : Aardvark.Rendering.IRuntime, interop : IWindowInterop
 
     new(runtime, swap) = Application(runtime, swap, false)
 
-and Window internal(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : IWindowSurface, samples : int) as this =
+and Window(app : Application, win : nativeptr<WindowHandle>, title : string, enableVSync : bool, surface : IWindowSurface, samples : int) as this =
     static let keyNameCache = System.Collections.Concurrent.ConcurrentDictionary<Keys * int, string>()
 
     let glfw = app.Glfw
@@ -1477,7 +1476,7 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
                 if v then glfw.PostEmptyEvent()
                 else ()
 
-    member internal x.Redraw() : bool =
+    member x.Redraw() : bool =
         if renderContinuous || damaged then
             sw.Restart()
             try
@@ -1510,7 +1509,7 @@ and Window internal(app : Application, win : nativeptr<WindowHandle>, title : st
         else
             renderContinuous || renderTask.OutOfDate
 
-    member internal x.Update() =
+    member x.Update() =
         updateGamepads()
 
     member x.Run() =
